@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Teleprompter — Painel de Controle</title>
+<style>
+  :root{ --bg:#151515; --card:#1e1e1e; --fg:#eee; --dim:#9a9a9a; --accent:#3ddc84; --danger:#c0392b; }
+  *{ box-sizing:border-box; }
+  body{
+    margin:0; background:var(--bg); color:var(--fg);
+    font-family:-apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    padding:20px; font-size:14px;
+  }
+  h1{ font-size:18px; margin:0 0 4px 0; }
+  .sub{ color:var(--dim); margin:0 0 20px 0; }
+  .card{ background:var(--card); border-radius:10px; padding:16px; margin-bottom:16px; }
+  .card h2{ font-size:13px; text-transform:uppercase; letter-spacing:.06em; color:var(--dim); margin:0 0 12px 0; }
+  .status-row{ display:flex; align-items:center; gap:10px; margin-bottom:8px; }
+  .dot{ width:10px; height:10px; border-radius:50%; background:var(--danger); }
+  .dot.ok{ background:var(--accent); }
+  .status-row .label{ color:var(--dim); }
+  .notes-preview{
+    max-height:90px; overflow:auto; background:#111; border-radius:6px; padding:10px;
+    white-space:pre-wrap; font-size:13px; color:#ccc; margin-top:8px;
+  }
+  .monitor-list{ display:flex; flex-direction:column; gap:8px; }
+  .monitor-btn{
+    display:flex; justify-content:space-between; align-items:center;
+    background:#262626; border:1px solid #333; border-radius:8px; padding:10px 14px;
+    cursor:pointer; color:var(--fg); font-size:14px;
+  }
+  .monitor-btn:hover{ border-color:var(--accent); }
+  .monitor-btn .go{ color:var(--accent); font-weight:600; }
+  button.primary{
+    background:var(--accent); color:#04210f; border:none; border-radius:8px;
+    padding:9px 16px; font-weight:600; cursor:pointer;
+  }
+  button.secondary{
+    background:transparent; color:var(--fg); border:1px solid #444; border-radius:8px;
+    padding:9px 16px; cursor:pointer;
+  }
+  .row{ display:flex; align-items:center; gap:12px; margin-bottom:14px; }
+  .row label{ flex:0 0 160px; color:var(--dim); }
+  .row input[type=range]{ flex:1; }
+  .row .val{ width:44px; text-align:right; color:var(--dim); }
+  .toggle-row{ display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-top:1px solid #2a2a2a; }
+  .toggle-row:first-child{ border-top:none; }
+  .switch{ position:relative; width:42px; height:24px; }
+  .switch input{ opacity:0; width:0; height:0; }
+  .slider-toggle{ position:absolute; cursor:pointer; inset:0; background:#444; border-radius:24px; transition:.2s; }
+  .slider-toggle:before{ content:""; position:absolute; width:18px; height:18px; left:3px; top:3px; background:white; border-radius:50%; transition:.2s; }
+  input:checked + .slider-toggle{ background:var(--accent); }
+  input:checked + .slider-toggle:before{ transform:translateX(18px); }
+  .fallback{ font-size:13px; color:var(--dim); line-height:1.5; }
+  .fallback code{ background:#111; padding:1px 5px; border-radius:4px; }
+</style>
+</head>
+<body>
+  <h1>Teleprompter para PowerPoint</h1>
+  <p class="sub">Painel de controle — mantenha esta janela na sua tela principal.</p>
+
+  <div class="card">
+    <h2>Status da conexão</h2>
+    <div class="status-row">
+      <span class="dot" id="connDot"></span>
+      <span id="connLabel">conectando...</span>
+    </div>
+    <div class="status-row">
+      <span class="label">Slide atual:</span>
+      <strong id="slideCounter">— / —</strong>
+    </div>
+    <div class="notes-preview" id="notesPreview">Sem dados ainda.</div>
+  </div>
+
+  <div class="card" id="monitorsCard">
+    <h2>Abrir teleprompter na segunda tela</h2>
+    <div id="monitorList" class="monitor-list"><div class="fallback">Detectando monitores...</div></div>
+  </div>
+
+  <div class="card">
+    <h2>Aparência e rolagem</h2>
+    <div class="row">
+      <label>Velocidade (px/s)</label>
+      <input type="range" id="speed" min="0" max="200" step="2" />
+      <span class="val" id="speedVal">—</span>
+    </div>
+    <div class="row">
+      <label>Tamanho da fonte</label>
+      <input type="range" id="fontSize" min="20" max="96" step="2" />
+      <span class="val" id="fontSizeVal">—</span>
+    </div>
+    <div class="toggle-row">
+      <span>Rolagem automática</span>
+      <label class="switch"><input type="checkbox" id="autoScroll" /><span class="slider-toggle"></span></label>
+    </div>
+    <div class="toggle-row">
+      <span>Espelhar (vidro de teleprompter)</span>
+      <label class="switch"><input type="checkbox" id="mirror" /><span class="slider-toggle"></span></label>
+    </div>
+    <div class="toggle-row">
+      <span>Tema escuro</span>
+      <label class="switch"><input type="checkbox" id="darkTheme" /><span class="slider-toggle"></span></label>
+    </div>
+  </div>
+
+</body>
+<script>
+(function(){
+  const connDot = document.getElementById('connDot');
+  const connLabel = document.getElementById('connLabel');
+  const slideCounter = document.getElementById('slideCounter');
+  const notesPreview = document.getElementById('notesPreview');
+  const monitorList = document.getElementById('monitorList');
+
+  const speed = document.getElementById('speed');
+  const speedVal = document.getElementById('speedVal');
+  const fontSize = document.getElementById('fontSize');
+  const fontSizeVal = document.getElementById('fontSizeVal');
+  const autoScroll = document.getElementById('autoScroll');
+  const mirror = document.getElementById('mirror');
+  const darkTheme = document.getElementById('darkTheme');
+
+  let settings = {};
+  let applyingRemote = false;
+
+  function renderState(state){
+    const live = !!(state.connected && state.in_slideshow);
+    connDot.classList.toggle('ok', live);
+    connLabel.textContent = live
+      ? ('conectado (' + (state.platform || '') + ')')
+      : (state.error || 'sem conexão');
+    slideCounter.textContent = state.slide_count ? (state.slide_index + ' / ' + state.slide_count) : '— / —';
+    notesPreview.textContent = (state.notes || '').trim() || 'Este slide não tem notas.';
+  }
+
+  function renderSettings(s){
+    settings = Object.assign(settings, s);
+    applyingRemote = true;
+    speed.value = settings.scroll_speed; speedVal.textContent = settings.scroll_speed;
+    fontSize.value = settings.font_size; fontSizeVal.textContent = settings.font_size;
+    autoScroll.checked = !!settings.auto_scroll;
+    mirror.checked = !!settings.mirror;
+    darkTheme.checked = settings.theme !== 'light';
+    applyingRemote = false;
+  }
+
+  let ws;
+  function connectWs(){
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    ws = new WebSocket(proto + '://' + location.host + '/ws');
+    ws.onmessage = (ev) => {
+      const msg = JSON.parse(ev.data);
+      if (msg.type === 'state') renderState(msg.data);
+      else if (msg.type === 'settings') renderSettings(msg.data);
+    };
+    ws.onclose = () => setTimeout(connectWs, 1000);
+  }
+  connectWs();
+
+  function pushSettings(partial){
+    if (applyingRemote) return;
+    fetch('/api/settings', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(partial) });
+  }
+
+  speed.addEventListener('input', () => { speedVal.textContent = speed.value; pushSettings({ scroll_speed: Number(speed.value) }); });
+  fontSize.addEventListener('input', () => { fontSizeVal.textContent = fontSize.value; pushSettings({ font_size: Number(fontSize.value) }); });
+  autoScroll.addEventListener('change', () => pushSettings({ auto_scroll: autoScroll.checked }));
+  mirror.addEventListener('change', () => pushSettings({ mirror: mirror.checked }));
+  darkTheme.addEventListener('change', () => pushSettings({ theme: darkTheme.checked ? 'dark' : 'light' }));
+
+  // --- monitores (via API nativa do pywebview) ------------------------
+  function renderMonitors(monitors){
+    monitorList.innerHTML = '';
+    if (!monitors || !monitors.length){
+      monitorList.innerHTML = '<div class="fallback">Nenhum monitor extra detectado.</div>';
+      return;
+    }
+    monitors.forEach((m) => {
+      const div = document.createElement('div');
+      div.className = 'monitor-btn';
+      div.innerHTML = '<span>' + (m.is_primary ? '🖥️ Tela principal' : '🖥️ Tela ' + (m.index + 1)) +
+        ' <span style="color:#777">(' + m.width + '×' + m.height + ')</span></span><span class="go">Abrir teleprompter →</span>';
+      div.onclick = () => {
+        if (window.pywebview && window.pywebview.api) {
+          window.pywebview.api.launch_teleprompter(m.index);
+        }
+      };
+      monitorList.appendChild(div);
+    });
+  }
+
+  function fallbackMonitorUI(){
+    monitorList.innerHTML =
+      '<div class="fallback">Detecção automática de monitor não disponível nesta janela ' +
+      '(abra via <code>python main.py</code> para isso).<br><br>' +
+      'Modo manual: <button class="secondary" id="openManual">abrir teleprompter em nova janela</button> ' +
+      'e arraste-a para a segunda tela, depois pressione F para tela cheia.</div>';
+    document.getElementById('openManual').onclick = () => window.open('/teleprompter.html', '_blank');
+  }
+
+  function initMonitors(){
+    if (window.pywebview && window.pywebview.api) {
+      window.pywebview.api.list_monitors().then(renderMonitors).catch(fallbackMonitorUI);
+    } else {
+      fallbackMonitorUI();
+    }
+  }
+
+  window.addEventListener('pywebviewready', initMonitors);
+  // se a janela foi aberta num navegador comum (sem pywebview), cai no fallback direto
+  setTimeout(() => { if (!window.pywebview) fallbackMonitorUI(); }, 800);
+})();
+</script>
+</html>

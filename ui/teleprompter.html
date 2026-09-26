@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Teleprompter</title>
+<style>
+  :root{
+    --bg-dark:#0a0a0a;
+    --fg-dark:#f5f5f5;
+    --bg-light:#f7f7f2;
+    --fg-light:#111111;
+    --accent:#3ddc84;
+    --dim:#888;
+  }
+  *{ box-sizing:border-box; }
+  html,body{
+    margin:0; padding:0; height:100%; overflow:hidden;
+    background:var(--bg-dark); color:var(--fg-dark);
+    font-family:-apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  }
+  body.theme-light{ background:var(--bg-light); color:var(--fg-light); }
+
+  #wrapper{
+    position:fixed; inset:0; display:flex; flex-direction:column;
+    transition:transform .2s ease;
+  }
+  #wrapper.mirrored{ transform:scaleX(-1); }
+
+  #statusbar{
+    flex:0 0 auto;
+    display:flex; align-items:center; justify-content:space-between;
+    padding:10px 28px; font-size:16px; letter-spacing:.02em;
+    color:var(--dim); border-bottom:1px solid rgba(255,255,255,.08);
+    background:rgba(255,255,255,.02);
+  }
+  body.theme-light #statusbar{ border-bottom:1px solid rgba(0,0,0,.08); background:rgba(0,0,0,.02); }
+  #statusbar .dot{ width:10px; height:10px; border-radius:50%; background:#c0392b; display:inline-block; margin-right:8px; vertical-align:middle; }
+  #statusbar .dot.ok{ background:var(--accent); }
+  #slideCounter{ font-weight:700; font-size:1.3em; color:var(--fg-dark); }
+  body.theme-light #slideCounter{ color:var(--fg-light); }
+  #pauseBadge{
+    padding:2px 10px; border-radius:999px; font-size:13px;
+    background:rgba(255,193,7,.15); color:#ffc107; display:none;
+  }
+  #pauseBadge.show{ display:inline-block; }
+
+  #scrollArea{
+    flex:1 1 auto; overflow-y:auto; padding:6vh 10vw 40vh 10vw;
+    scrollbar-width:none;
+  }
+  #scrollArea::-webkit-scrollbar{ display:none; }
+
+  #slideTitle{
+    font-size:1.4em; font-weight:700; opacity:.8; margin:0 0 .6em 0;
+    color:var(--accent);
+  }
+  #slideTitle:empty{ display:none; }
+  #notesText{
+    font-weight:600; white-space:pre-wrap; word-wrap:break-word;
+  }
+  #notesText.empty{ opacity:.4; font-style:italic; font-weight:400; }
+
+  #flash{
+    position:fixed; inset:0; background:var(--accent); opacity:0; pointer-events:none;
+    transition:opacity .35s ease;
+  }
+  #flash.on{ opacity:.10; }
+
+  #helpHint{
+    position:fixed; bottom:14px; right:22px; font-size:12px; color:var(--dim);
+    opacity:.6;
+  }
+
+  #offlineScreen{
+    position:fixed; inset:0; display:flex; align-items:center; justify-content:center;
+    text-align:center; padding:40px; flex-direction:column; gap:14px;
+  }
+  #offlineScreen h1{ font-size:2em; margin:0; }
+  #offlineScreen p{ color:var(--dim); max-width:640px; font-size:1.1em; line-height:1.5; }
+</style>
+</head>
+<body>
+  <div id="flash"></div>
+  <div id="wrapper">
+    <div id="statusbar">
+      <div><span class="dot" id="connDot"></span><span id="connText">conectando...</span></div>
+      <div id="slideCounter">— / —</div>
+      <div id="pauseBadge">PAUSADO — espaço para retomar</div>
+    </div>
+    <div id="scrollArea">
+      <div id="content">
+        <div id="slideTitle"></div>
+        <div id="notesText" class="empty">Aguardando o PowerPoint...</div>
+      </div>
+    </div>
+  </div>
+  <div id="offlineScreen" style="display:none;">
+    <h1>Sem conexão com o PowerPoint</h1>
+    <p id="offlineMsg">Abra a apresentação no PowerPoint e inicie o modo de apresentação (F5).</p>
+  </div>
+  <div id="helpHint">espaço = pausar/retomar · ↑/↓ = rolar manualmente · +/- = velocidade · M = espelhar · F = tela cheia · Q = fechar</div>
+
+<script>
+(function(){
+  const scrollArea = document.getElementById('scrollArea');
+  const notesEl = document.getElementById('notesText');
+  const titleEl = document.getElementById('slideTitle');
+  const counterEl = document.getElementById('slideCounter');
+  const connDot = document.getElementById('connDot');
+  const connText = document.getElementById('connText');
+  const pauseBadge = document.getElementById('pauseBadge');
+  const wrapper = document.getElementById('wrapper');
+  const flash = document.getElementById('flash');
+  const offlineScreen = document.getElementById('offlineScreen');
+  const offlineMsg = document.getElementById('offlineMsg');
+
+  let settings = { scroll_speed: 40, font_size: 48, line_height: 1.5, theme: 'dark', mirror: false, auto_scroll: true };
+  let lastSlideIndex = null;
+  let manualPause = false;
+  let lastTs = null;
+
+  function applySettings(){
+    document.body.classList.toggle('theme-light', settings.theme === 'light');
+    wrapper.classList.toggle('mirrored', !!settings.mirror);
+    notesEl.style.fontSize = settings.font_size + 'px';
+    notesEl.style.lineHeight = settings.line_height;
+    titleEl.style.fontSize = (settings.font_size * 0.55) + 'px';
+    pauseBadge.classList.toggle('show', manualPause || !settings.auto_scroll);
+  }
+
+  function renderState(state){
+    const connected = !!state.connected;
+    connDot.classList.toggle('ok', connected && state.in_slideshow);
+    if (!connected){
+      connText.textContent = 'PowerPoint não encontrado';
+    } else if (!state.in_slideshow){
+      connText.textContent = 'PowerPoint aberto (sem apresentação ativa)';
+    } else {
+      connText.textContent = 'conectado (' + (state.platform || '') + ')';
+    }
+
+    offlineScreen.style.display = (connected && state.in_slideshow) ? 'none' : 'flex';
+    offlineMsg.textContent = state.error || 'Abra a apresentação no PowerPoint e inicie o modo de apresentação (F5).';
+
+    if (state.slide_count){
+      counterEl.textContent = 'Slide ' + state.slide_index + ' / ' + state.slide_count;
+    } else {
+      counterEl.textContent = 'Slide — / —';
+    }
+
+    titleEl.textContent = state.slide_title || '';
+
+    const notes = (state.notes || '').trim();
+    if (notes){
+      notesEl.textContent = notes;
+      notesEl.classList.remove('empty');
+    } else {
+      notesEl.textContent = 'Este slide não tem notas.';
+      notesEl.classList.add('empty');
+    }
+
+    if (state.slide_index !== lastSlideIndex){
+      lastSlideIndex = state.slide_index;
+      scrollArea.scrollTop = 0;
+      manualPause = false;
+      flashChange();
+    }
+    applySettings();
+  }
+
+  function flashChange(){
+    flash.classList.add('on');
+    setTimeout(() => flash.classList.remove('on'), 250);
+  }
+
+  // --- auto-scroll -------------------------------------------------
+  function tick(ts){
+    if (lastTs === null) lastTs = ts;
+    const dt = (ts - lastTs) / 1000;
+    lastTs = ts;
+    if (settings.auto_scroll && !manualPause){
+      scrollArea.scrollTop += settings.scroll_speed * dt;
+    }
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+
+  // --- websocket -----------------------------------------------------
+  let ws;
+  function connectWs(){
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    ws = new WebSocket(proto + '://' + location.host + '/ws');
+    ws.onmessage = (ev) => {
+      const msg = JSON.parse(ev.data);
+      if (msg.type === 'state') renderState(msg.data);
+      else if (msg.type === 'settings') { settings = Object.assign(settings, msg.data); applySettings(); }
+    };
+    ws.onclose = () => setTimeout(connectWs, 1000);
+    ws.onerror = () => ws.close();
+  }
+  connectWs();
+
+  function sendSettings(partial){
+    settings = Object.assign(settings, partial);
+    applySettings();
+    if (ws && ws.readyState === WebSocket.OPEN){
+      ws.send(JSON.stringify({ type: 'settings_update', data: partial }));
+    }
+  }
+
+  // --- atalhos de teclado ---------------------------------------------
+  window.addEventListener('keydown', (e) => {
+    switch(e.key){
+      case ' ':
+        e.preventDefault();
+        manualPause = !manualPause;
+        applySettings();
+        break;
+      case 'ArrowDown':
+        e.preventDefault();
+        manualPause = true; applySettings();
+        scrollArea.scrollTop += 80;
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        manualPause = true; applySettings();
+        scrollArea.scrollTop -= 80;
+        break;
+      case '+':
+      case '=':
+        sendSettings({ scroll_speed: Math.min(settings.scroll_speed + 5, 400) });
+        break;
+      case '-':
+      case '_':
+        sendSettings({ scroll_speed: Math.max(settings.scroll_speed - 5, 0) });
+        break;
+      case 'm':
+      case 'M':
+        sendSettings({ mirror: !settings.mirror });
+        break;
+      case 'f':
+      case 'F':
+        if (document.fullscreenElement) document.exitFullscreen();
+        else document.documentElement.requestFullscreen().catch(()=>{});
+        break;
+      case 'q':
+      case 'Q':
+        if (window.pywebview && window.pywebview.api && window.pywebview.api.close_teleprompter) {
+          window.pywebview.api.close_teleprompter();
+        } else {
+          window.close();
+        }
+        break;
+    }
+  });
+
+  // clique duplo também alterna pausa (útil em telas touch)
+  window.addEventListener('dblclick', () => { manualPause = !manualPause; applySettings(); });
+})();
+</script>
+</body>
+</html>

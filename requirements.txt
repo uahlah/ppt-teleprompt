@@ -1,0 +1,18 @@
+# Servidor local (HTTP + WebSocket) — necessário em Windows e Mac
+aiohttp>=3.9
+
+# Janela nativa do painel de controle e da tela de teleprompter, com
+# detecção e posicionamento automático por monitor (webview.screens) —
+# de propósito NÃO usamos uma segunda biblioteca (como screeninfo) para
+# detectar monitores: misturar duas bibliotecas com sistemas de
+# coordenadas diferentes foi o que causava abrir na tela errada.
+pywebview>=4.4
+
+# --- Somente Windows ---
+# Automação COM com o PowerPoint. Descomente a linha abaixo se estiver no Windows,
+# ou instale separadamente com: pip install pywin32
+pywin32>=306 ; sys_platform == 'win32'
+
+# --- macOS ---
+# Nenhuma dependência extra: o conector do Mac usa `osascript`, que já vem
+# instalado no sistema.

@@ -1,0 +1,8 @@
+{
+  "scroll_speed": 40,
+  "font_size": 48,
+  "line_height": 1.5,
+  "theme": "dark",
+  "mirror": false,
+  "auto_scroll": true
+}
